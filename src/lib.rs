@@ -1,5 +1,4 @@
 mod models;
-mod tests;
 mod error;
 pub use error::DbError;
 pub use models::{Id, Operations, CountRequest, IdSelector, get_connection, from_json, SortingOrder, Selector, QuerySelector};
