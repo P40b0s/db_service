@@ -1,15 +1,10 @@
 use serde::Serialize;
 use sqlx::{sqlite::SqliteRow, FromRow, Row};
-use uuid::Uuid;
 use super::get_connection;
 
-pub trait Id<'a>
+pub trait Operations<'a> where Self: for<'r> sqlx::FromRow<'r, SqliteRow> + Send + Unpin
 {
-    fn get_id(&'a self)-> Uuid;
-}
-
-pub trait Operations<'a> where Self: for<'r> sqlx::FromRow<'r, SqliteRow> + Send + Unpin + Id<'a>
-{
+    fn get_id(&'a self)-> &'a str;
     fn base_name() -> &'static str;
     fn table_name() -> &'static str;
     fn create_table() -> String;
