@@ -341,6 +341,7 @@ version = "0.2.0"
 dependencies = [
  "anyhow",
  "logger",
+ "once_cell",
  "serde",
  "serde_json",
  "sqlx",

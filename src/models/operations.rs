@@ -1,34 +1,35 @@
+use std::sync::Arc;
 use serde::Serialize;
-use sqlx::{sqlite::SqliteRow, FromRow, Row};
-use super::get_connection;
+use sqlx::{sqlite::SqliteRow, FromRow, Pool, Row, Sqlite, SqliteConnection, SqlitePool};
+use super::new_connection;
 
 pub trait Operations<'a> where Self: for<'r> sqlx::FromRow<'r, SqliteRow> + Send + Unpin
 {
     fn get_id(&'a self)-> &'a str;
-    fn base_name() -> &'static str;
     fn table_name() -> &'static str;
     fn create_table() -> String;
     fn full_select() -> String;
+    
     fn create() ->  impl std::future::Future<Output = anyhow::Result<()>> + Send
     {
         async move
         {
-            let mut c = get_connection(Self::base_name()).await?;
+            let connection = super::connection::POOL.get().unwrap();
             sqlx::query(&Self::create_table())
-            .execute(&mut c).await?;
+            .execute(&**connection).await?;
             Ok(())
         }
     }
     fn delete(&'a self) ->  impl std::future::Future<Output = anyhow::Result<()>> + Send
     {
         let id = self.get_id().to_string();
+        let connection = super::connection::POOL.get().unwrap();
         async move
         {
-            let mut c = get_connection(Self::base_name()).await?;
             let sql = ["DELETE FROM ", &Self::table_name(), " WHERE id = $1"].concat();
             sqlx::query(&sql)
             .bind(id)
-            .execute(&mut c).await?;
+            .execute(&**connection).await?;
             Ok(())
         }
     }
@@ -37,7 +38,7 @@ pub trait Operations<'a> where Self: for<'r> sqlx::FromRow<'r, SqliteRow> + Send
     {
         async move
         {
-            let mut c = get_connection(Self::base_name()).await?;
+            let connection = super::connection::POOL.get().unwrap();
             let query = selector.query();
             let mut res = sqlx::query_as::<_, Self>(&query.0);
             if let Some(params) = query.1
@@ -47,7 +48,7 @@ pub trait Operations<'a> where Self: for<'r> sqlx::FromRow<'r, SqliteRow> + Send
                     res = res.bind(p);
                 }
             };
-            let r = res.fetch_all(&mut c)
+            let r = res.fetch_all(&**connection)
             .await?;
             Ok(r)
         }
@@ -57,7 +58,7 @@ pub trait Operations<'a> where Self: for<'r> sqlx::FromRow<'r, SqliteRow> + Send
     {
         async move
         {
-            let mut c = get_connection(Self::base_name()).await?;
+            let connection = super::connection::POOL.get().unwrap();
             let query = selector.query();
             let mut exe = sqlx::query(&query.0);
             if let Some(params) = query.1
@@ -67,7 +68,7 @@ pub trait Operations<'a> where Self: for<'r> sqlx::FromRow<'r, SqliteRow> + Send
                     exe = exe.bind(p);
                 }
             };
-            exe.execute(&mut c).await?;
+            exe.execute(&**connection).await?;
             Ok(())
         }
     }
@@ -76,7 +77,7 @@ pub trait Operations<'a> where Self: for<'r> sqlx::FromRow<'r, SqliteRow> + Send
     {
         async move
         {
-            let mut c = get_connection(Self::base_name()).await?;
+            let connection = super::connection::POOL.get().unwrap();
             let query = selector.query();
             let mut res = sqlx::query_as::<_, O>(&query.0);
             if let Some(params) = query.1
@@ -86,7 +87,7 @@ pub trait Operations<'a> where Self: for<'r> sqlx::FromRow<'r, SqliteRow> + Send
                     res = res.bind(p);
                 }
             };
-            let r = res.fetch_all(&mut c)
+            let r = res.fetch_all(&**connection)
             .await?;
             Ok(r)
         }
@@ -96,7 +97,7 @@ pub trait Operations<'a> where Self: for<'r> sqlx::FromRow<'r, SqliteRow> + Send
     {
         async move
         {
-            let mut c = get_connection(Self::base_name()).await?;
+            let connection = super::connection::POOL.get().unwrap();
             let query = selector.query();
             let mut res = sqlx::query_as::<_, R>(&query.0);
             if let Some(params) = query.1
@@ -106,7 +107,7 @@ pub trait Operations<'a> where Self: for<'r> sqlx::FromRow<'r, SqliteRow> + Send
                     res = res.bind(p);
                 }
             };
-            let r = res.fetch_one(&mut c)
+            let r = res.fetch_one(&**connection)
             .await?;
             Ok(r)
         }
@@ -126,10 +127,10 @@ pub trait Operations<'a> where Self: for<'r> sqlx::FromRow<'r, SqliteRow> + Send
             {
                 sql = sql.and("user_id", "=", &uid);
             }
-            let mut c = get_connection(Self::base_name()).await?;
+            let connection = super::connection::POOL.get().unwrap();
             let query = sql.query();
             let exe = sqlx::query(&query.0);
-            exe.execute(&mut c).await?;
+            exe.execute(&**connection).await?;
             //FIXME Self::execute глючит по лайфтаймам незнаю пока как иправить...
             Ok(())
         }
