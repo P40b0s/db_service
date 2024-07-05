@@ -289,6 +289,22 @@ pub trait SqlOperations<'a> where Self: for<'r> sqlx::FromRow<'r, SqliteRow> + S
         " (", &fields, ") 
         VALUES (", &numbers, ")"].concat()
     }
+    fn insert_or_ignore_query() -> String
+    {
+        let fields = Self::table_fields().to_vec().join(",");
+        let numbers = get_fields_numbers(Self::table_fields());
+        ["INSERT OR IGNORE INTO ", Self::table_name(), 
+        " (", &fields, ") 
+        VALUES (", &numbers, ")"].concat()
+    }
+    fn insert_or_replace_query() -> String
+    {
+        let fields = Self::table_fields().to_vec().join(",");
+        let numbers = get_fields_numbers(Self::table_fields());
+        ["INSERT OR IGNORE INTO ", Self::table_name(), 
+        " (", &fields, ") 
+        VALUES (", &numbers, ")"].concat()
+    }
     fn add_or_replace(&'a self) -> impl std::future::Future<Output = anyhow::Result<()>> + Send;
     fn add_or_ignore(&'a self) -> impl std::future::Future<Output = anyhow::Result<()>> + Send;
     ///удаляет все id которых нет в списке
