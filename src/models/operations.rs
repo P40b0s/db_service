@@ -3,6 +3,22 @@ use serde::Serialize;
 use sqlx::{sqlite::SqliteRow, FromRow, Pool, Row, Sqlite, SqliteConnection, SqlitePool};
 use super::new_connection;
 
+///выдает все поля через запятую
+pub fn get_all_fields(v: &[&'static str]) -> String
+{
+    v.to_vec().join(",")
+}
+///Выдает номера для вставки - $1,$2,$3...
+pub fn get_fields_numbers(v: &[&'static str]) -> String
+{
+    v.iter().enumerate().map(|f| ["$".to_owned(), (f.0 + 1).to_string()].concat()).collect::<Vec<String>>().join(",")
+}
+///Выдает связки имя_поля2 = $2... начинает со второго, первый будет id это фунция для default update
+pub fn get_fields_for_update(v: &[&'static str]) -> String
+{
+    v.iter().enumerate().map(|f| [f.1.to_string(), "=".to_owned(), "$".to_owned(), (f.0 + 1).to_string()].concat()).skip(1).collect::<Vec<String>>().join(",")
+}
+
 pub trait Operations<'a> where Self: for<'r> sqlx::FromRow<'r, SqliteRow> + Send + Unpin
 {
     fn get_id(&'a self)-> &'a str;
