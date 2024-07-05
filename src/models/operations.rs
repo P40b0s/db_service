@@ -72,6 +72,7 @@ pub trait Operations<'a> where Self: for<'r> sqlx::FromRow<'r, SqliteRow> + Send
             Ok(())
         }
     }
+    ///Все тоже самое что с обычным селектом но нужно выбрать какой тим мы хотим получить, тип должен реализовывать FromRow
     fn select_special_type<Q: QuerySelector<'a> + Send + Sync,
     O: for<'r> sqlx::FromRow<'r, SqliteRow> + Send + Unpin + Sync>(selector: &Q) -> impl std::future::Future<Output = anyhow::Result<Vec<O>>> + Send
     {
@@ -132,6 +133,141 @@ pub trait Operations<'a> where Self: for<'r> sqlx::FromRow<'r, SqliteRow> + Send
             let exe = sqlx::query(&query.0);
             exe.execute(&**connection).await?;
             //FIXME Self::execute глючит по лайфтаймам незнаю пока как иправить...
+            Ok(())
+        }
+    }
+    
+    
+}
+
+pub trait SqlOperations<'a> where Self: for<'r> sqlx::FromRow<'r, SqliteRow> + Send + Unpin
+{
+    fn get_id(&'a self)-> &'a str;
+    fn table_name() -> &'static str;
+    fn create_table() -> String;
+    fn full_select() -> String
+    {
+        ["SELECT ", &Self::table_fields().to_vec().join(","), " FROM ", Self::table_name()].concat()
+    }
+    fn table_fields() -> &'a [&'static str];
+    fn create() ->  impl std::future::Future<Output = anyhow::Result<()>> + Send
+    {
+        async move
+        {
+            let connection = super::connection::POOL.get().unwrap();
+            sqlx::query(&Self::create_table())
+            .execute(&**connection).await?;
+            Ok(())
+        }
+    }
+    fn delete(&'a self) ->  impl std::future::Future<Output = anyhow::Result<()>> + Send
+    {
+        let id = self.get_id().to_string();
+        let connection = super::connection::POOL.get().unwrap();
+        async move
+        {
+            let sql = ["DELETE FROM ", &Self::table_name(), " WHERE id = $1"].concat();
+            sqlx::query(&sql)
+            .bind(id)
+            .execute(&**connection).await?;
+            Ok(())
+        }
+    }
+    fn update(&'a self) -> impl std::future::Future<Output = anyhow::Result<()>> + Send;
+    fn select<Q: QuerySelector<'a>  + Send + Sync>(selector: &Q) -> impl std::future::Future<Output = anyhow::Result<Vec<Self>>> + Send
+    {
+        async move
+        {
+            let connection = super::connection::POOL.get().unwrap();
+            let query = selector.query();
+            let mut res = sqlx::query_as::<_, Self>(&query.0);
+            if let Some(params) = query.1
+            {
+                for p in params
+                {
+                    res = res.bind(p);
+                }
+            };
+            let r = res.fetch_all(&**connection)
+            .await?;
+            Ok(r)
+        }
+    }
+
+    fn execute<Q: QuerySelector<'a>  + Send + Sync>(selector: &Q) -> impl std::future::Future<Output = anyhow::Result<()>> + Send
+    {
+        async move
+        {
+            let connection = super::connection::POOL.get().unwrap();
+            let query = selector.query();
+            let mut exe = sqlx::query(&query.0);
+            if let Some(params) = query.1
+            {
+                for p in params
+                {
+                    exe = exe.bind(p);
+                }
+            };
+            exe.execute(&**connection).await?;
+            Ok(())
+        }
+    }
+     ///Все тоже самое что с обычным селектом но нужно выбрать какой тим мы хотим получить, тип должен реализовывать FromRow
+    fn select_special_type<Q: QuerySelector<'a> + Send + Sync,
+    O: for<'r> sqlx::FromRow<'r, SqliteRow> + Send + Unpin + Sync>(selector: &Q) -> impl std::future::Future<Output = anyhow::Result<Vec<O>>> + Send
+    {
+        async move
+        {
+            let connection = super::connection::POOL.get().unwrap();
+            let query = selector.query();
+            let mut res = sqlx::query_as::<_, O>(&query.0);
+            if let Some(params) = query.1
+            {
+                for p in params
+                {
+                    res = res.bind(p);
+                }
+            };
+            let r = res.fetch_all(&**connection)
+            .await?;
+            Ok(r)
+        }
+    }
+    fn get_one<Q: QuerySelector<'a> + Sync + Send,
+    R: for<'r> sqlx::FromRow<'r, SqliteRow> + Send + Unpin + Sync>(selector: &Q) -> impl std::future::Future<Output = anyhow::Result<R>> + Send
+    {
+        async move
+        {
+            let connection = super::connection::POOL.get().unwrap();
+            let query = selector.query();
+            let mut res = sqlx::query_as::<_, R>(&query.0);
+            if let Some(params) = query.1
+            {
+                for p in params
+                {
+                    res = res.bind(p);
+                }
+            };
+            let r = res.fetch_one(&**connection)
+            .await?;
+            Ok(r)
+        }
+    }
+    fn add_or_replace(&'a self) -> impl std::future::Future<Output = anyhow::Result<()>> + Send;
+    fn add_or_ignore(&'a self) -> impl std::future::Future<Output = anyhow::Result<()>> + Send;
+    ///удаляет все id которых нет в списке
+    ///WHERE id NOT IN ('...', '...')
+    fn delete_many_exclude_ids(ids: Vec<String>) -> impl std::future::Future<Output = anyhow::Result<()>> + Send
+    {
+       async move 
+       {
+            let del = ["DELETE FROM ", Self::table_name()].concat();
+            let sql = Selector::new(&del)
+            .where_not_in(&ids);
+            let connection = super::connection::POOL.get().unwrap();
+            let query = sql.query();
+            let exe = sqlx::query(&query.0);
+            exe.execute(&**connection).await?;
             Ok(())
         }
     }
@@ -334,7 +470,9 @@ impl<'a> QuerySelector<'a> for Selector<'a>
         }
         (body,values)
     }
-
+    ///super::Selector::new("SELECT one, two FROM tests")
+    ///.add_param("one", &str_1)
+    ///.add_param("two", &str_2)
     fn add_param<T: ToString>(mut self, param: &str, value: &T) -> Self
     {
         if self.where_params.is_none()
@@ -360,6 +498,7 @@ impl<'a> QuerySelector<'a> for Selector<'a>
         }
         self
     }
+    /// .and("user_id", "=", &"12345")
     fn and<T: ToString>(mut self, param: &str, operator: &str, value: &T) -> Self
     {
         if self.and_params.is_none()
