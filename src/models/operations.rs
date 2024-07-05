@@ -19,6 +19,8 @@ pub fn get_fields_for_update(v: &[&'static str]) -> String
     v.iter().enumerate().map(|f| [f.1.to_string(), "=".to_owned(), "$".to_owned(), (f.0 + 1).to_string()].concat()).skip(1).collect::<Vec<String>>().join(",")
 }
 
+
+
 pub trait Operations<'a> where Self: for<'r> sqlx::FromRow<'r, SqliteRow> + Send + Unpin
 {
     fn get_id(&'a self)-> &'a str;
@@ -129,6 +131,7 @@ pub trait Operations<'a> where Self: for<'r> sqlx::FromRow<'r, SqliteRow> + Send
             Ok(r)
         }
     }
+    
     fn add_or_replace(&'a self) -> impl std::future::Future<Output = anyhow::Result<()>> + Send;
     fn add_or_ignore(&'a self) -> impl std::future::Future<Output = anyhow::Result<()>> + Send;
     ///удаляет все id которых нет в списке
@@ -268,6 +271,23 @@ pub trait SqlOperations<'a> where Self: for<'r> sqlx::FromRow<'r, SqliteRow> + S
             .await?;
             Ok(r)
         }
+    }
+    ///полный update c id расположенном на 0 индексе в массиве полей `table_fields`
+    fn update_query() -> String
+    {
+        let update_set = get_fields_for_update(Self::table_fields());
+        ["UPDATE ", Self::table_name(),
+        " SET ", &update_set ," WHERE ", Self::table_fields()[0]," = $1"].concat()
+    }
+    ///перед данным запросом необходимо добавить "INSERT OR REPLACE INTO "
+    /// или "INSERT OR IGNORE INTO "
+    fn insert_query() -> String
+    {
+        let fields = Self::table_fields().to_vec().join(",");
+        let numbers = get_fields_numbers(Self::table_fields());
+        [Self::table_name(), 
+        " (", &fields, ") 
+        VALUES (", &numbers, ")"].concat()
     }
     fn add_or_replace(&'a self) -> impl std::future::Future<Output = anyhow::Result<()>> + Send;
     fn add_or_ignore(&'a self) -> impl std::future::Future<Output = anyhow::Result<()>> + Send;
