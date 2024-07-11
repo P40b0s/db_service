@@ -301,7 +301,7 @@ pub trait SqlOperations<'a> where Self: for<'r> sqlx::FromRow<'r, SqliteRow> + S
     {
         let fields = Self::table_fields().to_vec().join(",");
         let numbers = get_fields_numbers(Self::table_fields());
-        ["INSERT OR IGNORE INTO ", Self::table_name(), 
+        ["INSERT OR REPLACE INTO ", Self::table_name(), 
         " (", &fields, ") 
         VALUES (", &numbers, ")"].concat()
     }
