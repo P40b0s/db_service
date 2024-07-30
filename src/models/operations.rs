@@ -490,7 +490,7 @@ impl<'a> QuerySelector<'a> for Selector<'a>
                 {
                     ""
                 };
-                let w = [par, " = ", val, delimitter].concat();
+                let w = [par, " = ", "\"", val, "\"", delimitter].concat();
                 values.as_mut().unwrap().push(val.to_owned());
                 body.push_str(&w);
             }
