@@ -471,6 +471,17 @@ impl<'a> QuerySelector<'a> for Selector<'a>
             values = Some(vec![]);
             for (i, (par, val)) in where_p.iter().enumerate()
             {
+                // let delimitter = if where_p.len() > 1 && (i+1) < where_p.len()
+                // {
+                //     " AND "
+                // }
+                // else
+                // {
+                //     ""
+                // };
+                // let w = [par, " = $", &(i+1).to_string(), delimitter].concat();
+                // values.as_mut().unwrap().push(val.to_owned());
+                // body.push_str(&w);
                 let delimitter = if where_p.len() > 1 && (i+1) < where_p.len()
                 {
                     " AND "
@@ -479,7 +490,7 @@ impl<'a> QuerySelector<'a> for Selector<'a>
                 {
                     ""
                 };
-                let w = [par, " = $", &(i+1).to_string(), delimitter].concat();
+                let w = [par, " = ", val, delimitter].concat();
                 values.as_mut().unwrap().push(val.to_owned());
                 body.push_str(&w);
             }
