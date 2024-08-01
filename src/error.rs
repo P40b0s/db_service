@@ -1,15 +1,22 @@
-pub enum DbError
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum DbError 
 {
-    Error(String)
+    #[error(transparent)]
+    DeserializeError(#[from] serde_json::Error),
+    #[error(transparent)]
+    IoError(#[from] std::io::Error),
+    #[error(transparent)]
+    SqlxError(#[from] sqlx::Error),
 }
 
-impl From<sqlx::Error> for DbError
+impl serde::Serialize for DbError 
 {
-    fn from(value: sqlx::Error) -> Self 
-    {
-        match value 
-        {
-            _ => DbError::Error(format!("{}", value.to_string()))
-        }
-    }
+  fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+  where
+  S: serde::ser::Serializer,
+  {
+    serializer.serialize_str(self.to_string().as_ref())
+  }
 }

@@ -1,6 +1,8 @@
 use std::sync::Arc;
 use serde::Serialize;
 use sqlx::{sqlite::SqliteRow, FromRow, Pool, Row, Sqlite, SqliteConnection, SqlitePool};
+use crate::DbError;
+
 use super::new_connection;
 
 ///выдает все поля через запятую
@@ -28,35 +30,32 @@ pub trait Operations<'a> where Self: for<'r> sqlx::FromRow<'r, SqliteRow> + Send
     fn create_table() -> String;
     fn full_select() -> String;
     
-    fn create() ->  impl std::future::Future<Output = anyhow::Result<()>> + Send
+    fn create(pool: Arc<SqlitePool>) ->  impl std::future::Future<Output = Result<(), DbError>> + Send
     {
         async move
         {
-            let connection = super::connection::POOL.get().unwrap();
             sqlx::query(&Self::create_table())
-            .execute(&**connection).await?;
+            .execute(&*pool).await?;
             Ok(())
         }
     }
-    fn delete(&'a self) ->  impl std::future::Future<Output = anyhow::Result<()>> + Send
+    fn delete(&'a self, pool: Arc<SqlitePool>) ->  impl std::future::Future<Output = Result<(), DbError>> + Send
     {
         let id = self.get_id().to_string();
-        let connection = super::connection::POOL.get().unwrap();
         async move
         {
             let sql = ["DELETE FROM ", &Self::table_name(), " WHERE id = $1"].concat();
             sqlx::query(&sql)
             .bind(id)
-            .execute(&**connection).await?;
+            .execute(&*pool).await?;
             Ok(())
         }
     }
-    fn update(&'a self) -> impl std::future::Future<Output = anyhow::Result<()>> + Send;
-    fn select<Q: QuerySelector<'a>  + Send + Sync>(selector: &Q) -> impl std::future::Future<Output = anyhow::Result<Vec<Self>>> + Send
+    fn update(&'a self, pool: Arc<SqlitePool>) -> impl std::future::Future<Output = Result<(), DbError>> + Send;
+    fn select<Q: QuerySelector<'a>  + Send + Sync>(selector: &Q, pool: Arc<SqlitePool>) -> impl std::future::Future<Output = Result<Vec<Self>, DbError>> + Send
     {
         async move
         {
-            let connection = super::connection::POOL.get().unwrap();
             let query = selector.query();
             let mut res = sqlx::query_as::<_, Self>(&query.0);
             if let Some(params) = query.1
@@ -66,17 +65,16 @@ pub trait Operations<'a> where Self: for<'r> sqlx::FromRow<'r, SqliteRow> + Send
                     res = res.bind(p);
                 }
             };
-            let r = res.fetch_all(&**connection)
+            let r = res.fetch_all(&*pool)
             .await?;
             Ok(r)
         }
     }
 
-    fn execute<Q: QuerySelector<'a>  + Send + Sync>(selector: &Q) -> impl std::future::Future<Output = anyhow::Result<()>> + Send
+    fn execute<Q: QuerySelector<'a>  + Send + Sync>(selector: &Q, pool: Arc<SqlitePool>) -> impl std::future::Future<Output = Result<(), DbError>> + Send
     {
         async move
         {
-            let connection = super::connection::POOL.get().unwrap();
             let query = selector.query();
             let mut exe = sqlx::query(&query.0);
             if let Some(params) = query.1
@@ -86,17 +84,16 @@ pub trait Operations<'a> where Self: for<'r> sqlx::FromRow<'r, SqliteRow> + Send
                     exe = exe.bind(p);
                 }
             };
-            exe.execute(&**connection).await?;
+            exe.execute(&*pool).await?;
             Ok(())
         }
     }
     ///Все тоже самое что с обычным селектом но нужно выбрать какой тим мы хотим получить, тип должен реализовывать FromRow
     fn select_special_type<Q: QuerySelector<'a> + Send + Sync,
-    O: for<'r> sqlx::FromRow<'r, SqliteRow> + Send + Unpin + Sync>(selector: &Q) -> impl std::future::Future<Output = anyhow::Result<Vec<O>>> + Send
+    O: for<'r> sqlx::FromRow<'r, SqliteRow> + Send + Unpin + Sync>(selector: &Q, pool: Arc<SqlitePool>) -> impl std::future::Future<Output = Result<Vec<O>, DbError>> + Send
     {
         async move
         {
-            let connection = super::connection::POOL.get().unwrap();
             let query = selector.query();
             let mut res = sqlx::query_as::<_, O>(&query.0);
             if let Some(params) = query.1
@@ -106,17 +103,16 @@ pub trait Operations<'a> where Self: for<'r> sqlx::FromRow<'r, SqliteRow> + Send
                     res = res.bind(p);
                 }
             };
-            let r = res.fetch_all(&**connection)
+            let r = res.fetch_all(&*pool)
             .await?;
             Ok(r)
         }
     }
     fn get_one<Q: QuerySelector<'a> + Sync + Send,
-    R: for<'r> sqlx::FromRow<'r, SqliteRow> + Send + Unpin + Sync>(selector: &Q) -> impl std::future::Future<Output = anyhow::Result<R>> + Send
+    R: for<'r> sqlx::FromRow<'r, SqliteRow> + Send + Unpin + Sync>(selector: &Q, pool: Arc<SqlitePool>) -> impl std::future::Future<Output = Result<R, DbError>> + Send
     {
         async move
         {
-            let connection = super::connection::POOL.get().unwrap();
             let query = selector.query();
             let mut res = sqlx::query_as::<_, R>(&query.0);
             if let Some(params) = query.1
@@ -126,17 +122,17 @@ pub trait Operations<'a> where Self: for<'r> sqlx::FromRow<'r, SqliteRow> + Send
                     res = res.bind(p);
                 }
             };
-            let r = res.fetch_one(&**connection)
+            let r = res.fetch_one(&*pool)
             .await?;
             Ok(r)
         }
     }
     
-    fn add_or_replace(&'a self) -> impl std::future::Future<Output = anyhow::Result<()>> + Send;
-    fn add_or_ignore(&'a self) -> impl std::future::Future<Output = anyhow::Result<()>> + Send;
+    fn add_or_replace(&'a self, pool: Arc<SqlitePool>) -> impl std::future::Future<Output = Result<(), DbError>> + Send;
+    fn add_or_ignore(&'a self, pool: Arc<SqlitePool>) -> impl std::future::Future<Output = Result<(), DbError>> + Send;
     ///удаляет все id которых нет в списке
     ///WHERE id NOT IN ('...', '...')
-    fn delete_many_exclude_ids(ids: Vec<String>, user_id: Option<&'a str>) -> impl std::future::Future<Output = anyhow::Result<()>> + Send
+    fn delete_many_exclude_ids(ids: Vec<String>, user_id: Option<&'a str>, pool: Arc<SqlitePool>) -> impl std::future::Future<Output = Result<(), DbError>> + Send
     {
        async move 
        {
@@ -147,10 +143,9 @@ pub trait Operations<'a> where Self: for<'r> sqlx::FromRow<'r, SqliteRow> + Send
             {
                 sql = sql.and("user_id", "=", &uid);
             }
-            let connection = super::connection::POOL.get().unwrap();
             let query = sql.query();
             let exe = sqlx::query(&query.0);
-            exe.execute(&**connection).await?;
+            exe.execute(&*pool).await?;
             //FIXME Self::execute глючит по лайфтаймам незнаю пока как иправить...
             Ok(())
         }
@@ -169,35 +164,32 @@ pub trait SqlOperations<'a> where Self: for<'r> sqlx::FromRow<'r, SqliteRow> + S
         ["SELECT ", &Self::table_fields().to_vec().join(","), " FROM ", Self::table_name()].concat()
     }
     fn table_fields() -> &'a [&'static str];
-    fn create() ->  impl std::future::Future<Output = anyhow::Result<()>> + Send
+    fn create(pool: Arc<SqlitePool>) ->  impl std::future::Future<Output = Result<(), DbError>> + Send
     {
         async move
         {
-            let connection = super::connection::POOL.get().unwrap();
             sqlx::query(&Self::create_table())
-            .execute(&**connection).await?;
+            .execute(&*pool).await?;
             Ok(())
         }
     }
-    fn delete(&'a self) ->  impl std::future::Future<Output = anyhow::Result<()>> + Send
+    fn delete(&'a self, pool: Arc<SqlitePool>) ->  impl std::future::Future<Output = Result<(), DbError>> + Send
     {
         let id = self.get_id().to_string();
-        let connection = super::connection::POOL.get().unwrap();
         async move
         {
             let sql = ["DELETE FROM ", &Self::table_name(), " WHERE id = $1"].concat();
             sqlx::query(&sql)
             .bind(id)
-            .execute(&**connection).await?;
+            .execute(&*pool).await?;
             Ok(())
         }
     }
-    fn update(&'a self) -> impl std::future::Future<Output = anyhow::Result<()>> + Send;
-    fn select<Q: QuerySelector<'a>  + Send + Sync>(selector: &Q) -> impl std::future::Future<Output = anyhow::Result<Vec<Self>>> + Send
+    fn update(&'a self, pool: Arc<SqlitePool>) -> impl std::future::Future<Output = Result<(), DbError>> + Send;
+    fn select<Q: QuerySelector<'a>  + Send + Sync>(selector: &Q, pool: Arc<SqlitePool>) -> impl std::future::Future<Output = Result<Vec<Self>, DbError>> + Send
     {
         async move
         {
-            let connection = super::connection::POOL.get().unwrap();
             let query = selector.query();
             let mut res = sqlx::query_as::<_, Self>(&query.0);
             if let Some(params) = query.1
@@ -207,17 +199,16 @@ pub trait SqlOperations<'a> where Self: for<'r> sqlx::FromRow<'r, SqliteRow> + S
                     res = res.bind(p);
                 }
             };
-            let r = res.fetch_all(&**connection)
+            let r = res.fetch_all(&*pool)
             .await?;
             Ok(r)
         }
     }
 
-    fn execute<Q: QuerySelector<'a>  + Send + Sync>(selector: &Q) -> impl std::future::Future<Output = anyhow::Result<()>> + Send
+    fn execute<Q: QuerySelector<'a>  + Send + Sync>(selector: &Q, pool: Arc<SqlitePool>) -> impl std::future::Future<Output = Result<(), DbError>> + Send
     {
         async move
         {
-            let connection = super::connection::POOL.get().unwrap();
             let query = selector.query();
             let mut exe = sqlx::query(&query.0);
             if let Some(params) = query.1
@@ -227,17 +218,16 @@ pub trait SqlOperations<'a> where Self: for<'r> sqlx::FromRow<'r, SqliteRow> + S
                     exe = exe.bind(p);
                 }
             };
-            exe.execute(&**connection).await?;
+            exe.execute(&*pool).await?;
             Ok(())
         }
     }
      ///Все тоже самое что с обычным селектом но нужно выбрать какой тим мы хотим получить, тип должен реализовывать FromRow
     fn select_special_type<Q: QuerySelector<'a> + Send + Sync,
-    O: for<'r> sqlx::FromRow<'r, SqliteRow> + Send + Unpin + Sync>(selector: &Q) -> impl std::future::Future<Output = anyhow::Result<Vec<O>>> + Send
+    O: for<'r> sqlx::FromRow<'r, SqliteRow> + Send + Unpin + Sync>(selector: &Q, pool: Arc<SqlitePool>) -> impl std::future::Future<Output = Result<Vec<O>, DbError>> + Send
     {
         async move
         {
-            let connection = super::connection::POOL.get().unwrap();
             let query = selector.query();
             let mut res = sqlx::query_as::<_, O>(&query.0);
             if let Some(params) = query.1
@@ -247,17 +237,16 @@ pub trait SqlOperations<'a> where Self: for<'r> sqlx::FromRow<'r, SqliteRow> + S
                     res = res.bind(p);
                 }
             };
-            let r = res.fetch_all(&**connection)
+            let r = res.fetch_all(&*pool)
             .await?;
             Ok(r)
         }
     }
     fn get_one<Q: QuerySelector<'a> + Sync + Send,
-    R: for<'r> sqlx::FromRow<'r, SqliteRow> + Send + Unpin + Sync>(selector: &Q) -> impl std::future::Future<Output = anyhow::Result<R>> + Send
+    R: for<'r> sqlx::FromRow<'r, SqliteRow> + Send + Unpin + Sync>(selector: &Q, pool: Arc<SqlitePool>) -> impl std::future::Future<Output = Result<R, DbError>> + Send
     {
         async move
         {
-            let connection = super::connection::POOL.get().unwrap();
             let query = selector.query();
             let mut res = sqlx::query_as::<_, R>(&query.0);
             if let Some(params) = query.1
@@ -267,7 +256,7 @@ pub trait SqlOperations<'a> where Self: for<'r> sqlx::FromRow<'r, SqliteRow> + S
                     res = res.bind(p);
                 }
             };
-            let r = res.fetch_one(&**connection)
+            let r = res.fetch_one(&*pool)
             .await?;
             Ok(r)
         }
@@ -305,21 +294,20 @@ pub trait SqlOperations<'a> where Self: for<'r> sqlx::FromRow<'r, SqliteRow> + S
         " (", &fields, ") 
         VALUES (", &numbers, ")"].concat()
     }
-    fn add_or_replace(&'a self) -> impl std::future::Future<Output = anyhow::Result<()>> + Send;
-    fn add_or_ignore(&'a self) -> impl std::future::Future<Output = anyhow::Result<()>> + Send;
+    fn add_or_replace(&'a self, pool: Arc<SqlitePool>) -> impl std::future::Future<Output = Result<(), DbError>> + Send;
+    fn add_or_ignore(&'a self, pool: Arc<SqlitePool>) -> impl std::future::Future<Output = Result<(), DbError>> + Send;
     ///удаляет все id которых нет в списке
     ///WHERE id NOT IN ('...', '...')
-    fn delete_many_exclude_ids(ids: Vec<String>) -> impl std::future::Future<Output = anyhow::Result<()>> + Send
+    fn delete_many_exclude_ids(ids: Vec<String>, pool: Arc<SqlitePool>) -> impl std::future::Future<Output = Result<(), DbError>> + Send
     {
        async move 
        {
             let del = ["DELETE FROM ", Self::table_name()].concat();
             let sql = Selector::new(&del)
             .where_not_in(&ids);
-            let connection = super::connection::POOL.get().unwrap();
             let query = sql.query();
             let exe = sqlx::query(&query.0);
-            exe.execute(&**connection).await?;
+            exe.execute(&*pool).await?;
             Ok(())
         }
     }
@@ -355,6 +343,7 @@ pub struct Selector<'a>
 {
     query: String,
     where_params: Option<Vec<(String, String)>>,
+    where_n_params: Option<Vec<(String, usize)>>,
     and_params: Option<Vec<(String, String, String)>>,
     where_by_id: Option<String>,
     sorting_order: Option<SortingOrder<'a>>,
@@ -425,6 +414,7 @@ impl<'a> QuerySelector<'a> for Selector<'a>
         {
             query: select.to_string(),
             where_params: None,
+            where_n_params: None,
             and_params: None,
             sorting_order: None,
             limit: None,
@@ -439,6 +429,7 @@ impl<'a> QuerySelector<'a> for Selector<'a>
         {
             query: c,
             where_params: None,
+            where_n_params: None,
             and_params: None,
             sorting_order: None,
             limit: None,
@@ -492,6 +483,25 @@ impl<'a> QuerySelector<'a> for Selector<'a>
                 };
                 let w = [par, " = ", "\"", val, "\"", delimitter].concat();
                 values.as_mut().unwrap().push(val.to_owned());
+                body.push_str(&w);
+            }
+            contains_where = true;
+        }
+        else if let Some(where_p) = self.where_n_params.as_ref()
+        {
+            body.push_str(" WHERE ");
+            values = Some(vec![]);
+            for (i, (par, val)) in where_p.iter().enumerate()
+            {
+                let delimitter = if where_p.len() > 1 && (i+1) < where_p.len()
+                {
+                    " AND "
+                }
+                else
+                {
+                    ""
+                };
+                let w = [par, " = ", &val.to_string(), delimitter].concat();
                 body.push_str(&w);
             }
             contains_where = true;
