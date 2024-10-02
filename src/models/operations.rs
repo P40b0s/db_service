@@ -378,6 +378,10 @@ pub fn to_json<V: Serialize>(value: &V) -> Option<String>
 {
     if let Ok(res) = serde_json::ser::to_string(value)
     {
+        if res == "null" || res == "NULL"
+        {
+            return None;
+        }
         return Some(res);
     }
     None   
