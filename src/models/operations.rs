@@ -173,19 +173,19 @@ pub trait SqlOperations<'a> where Self: for<'r> sqlx::FromRow<'r, SqliteRow> + S
             Ok(())
         }
     }
-    fn delete(&'a self, pool: Arc<SqlitePool>) ->  impl std::future::Future<Output = Result<(), DbError>> + Send
+    fn delete(&'a self, pool: Arc<SqlitePool>) ->  impl std::future::Future<Output = Result<u64, DbError>> + Send
     {
         let id = self.get_id().to_string();
         async move
         {
             let sql = ["DELETE FROM ", &Self::table_name(), " WHERE id = $1"].concat();
-            sqlx::query(&sql)
+            let res = sqlx::query(&sql)
             .bind(id)
             .execute(&*pool).await?;
-            Ok(())
+            Ok(res.rows_affected())
         }
     }
-    fn update(&'a self, pool: Arc<SqlitePool>) -> impl std::future::Future<Output = Result<(), DbError>> + Send;
+    fn update(&'a self, pool: Arc<SqlitePool>) -> impl std::future::Future<Output = Result<u64, DbError>> + Send;
     fn select<Q: QuerySelector<'a>  + Send + Sync>(selector: &Q, pool: Arc<SqlitePool>) -> impl std::future::Future<Output = Result<Vec<Self>, DbError>> + Send
     {
         async move
@@ -205,7 +205,7 @@ pub trait SqlOperations<'a> where Self: for<'r> sqlx::FromRow<'r, SqliteRow> + S
         }
     }
 
-    fn execute<Q: QuerySelector<'a>  + Send + Sync>(selector: &Q, pool: Arc<SqlitePool>) -> impl std::future::Future<Output = Result<(), DbError>> + Send
+    fn execute<Q: QuerySelector<'a>  + Send + Sync>(selector: &Q, pool: Arc<SqlitePool>) -> impl std::future::Future<Output = Result<u64, DbError>> + Send
     {
         async move
         {
@@ -218,8 +218,8 @@ pub trait SqlOperations<'a> where Self: for<'r> sqlx::FromRow<'r, SqliteRow> + S
                     exe = exe.bind(p);
                 }
             };
-            exe.execute(&*pool).await?;
-            Ok(())
+            let res = exe.execute(&*pool).await?;
+            Ok(res.rows_affected())
         }
     }
      ///Все тоже самое что с обычным селектом но нужно выбрать какой тим мы хотим получить, тип должен реализовывать FromRow
@@ -294,8 +294,8 @@ pub trait SqlOperations<'a> where Self: for<'r> sqlx::FromRow<'r, SqliteRow> + S
         " (", &fields, ") 
         VALUES (", &numbers, ")"].concat()
     }
-    fn add_or_replace(&'a self, pool: Arc<SqlitePool>) -> impl std::future::Future<Output = Result<(), DbError>> + Send;
-    fn add_or_ignore(&'a self, pool: Arc<SqlitePool>) -> impl std::future::Future<Output = Result<(), DbError>> + Send;
+    fn add_or_replace(&'a self, pool: Arc<SqlitePool>) -> impl std::future::Future<Output = Result<u64, DbError>> + Send;
+    fn add_or_ignore(&'a self, pool: Arc<SqlitePool>) -> impl std::future::Future<Output = Result<u64, DbError>> + Send;
     ///удаляет все id которых нет в списке
     ///WHERE id NOT IN ('...', '...')
     fn delete_many_exclude_ids(ids: Vec<String>, pool: Arc<SqlitePool>) -> impl std::future::Future<Output = Result<(), DbError>> + Send
