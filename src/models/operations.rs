@@ -159,10 +159,12 @@ pub trait SqlOperations<'a> where Self: for<'r> sqlx::FromRow<'r, SqliteRow> + S
     fn get_id(&'a self)-> &'a str;
     fn table_name() -> &'static str;
     fn create_table() -> String;
+    ///Запрос полного селекта без where
     fn full_select() -> String
     {
         ["SELECT ", &Self::table_fields().to_vec().join(","), " FROM ", Self::table_name()].concat()
     }
+    ///Получить все поля таблицы
     fn table_fields() -> &'a [&'static str];
     fn create(pool: Arc<SqlitePool>) ->  impl std::future::Future<Output = Result<(), DbError>> + Send
     {
@@ -204,7 +206,6 @@ pub trait SqlOperations<'a> where Self: for<'r> sqlx::FromRow<'r, SqliteRow> + S
             Ok(r)
         }
     }
-
     fn execute<Q: QuerySelector<'a>  + Send + Sync>(selector: &Q, pool: Arc<SqlitePool>) -> impl std::future::Future<Output = Result<u64, DbError>> + Send
     {
         async move
@@ -311,6 +312,34 @@ pub trait SqlOperations<'a> where Self: for<'r> sqlx::FromRow<'r, SqliteRow> + S
             Ok(())
         }
     }
+    fn count(pool: Arc<SqlitePool>) -> impl std::future::Future<Output = Result<u32, DbError>> + Send
+    {
+        async move
+        {
+            let q = ["SELECT COUNT(*) as count FROM ", Self::table_name()].concat();
+            let selector = Selector::new(&q);
+            let res = sqlx::query_as::<_, CountRequest>(&selector.query);
+            let r = res.fetch_one(&*pool)
+            .await?;
+            Ok(r.count)
+        }
+    }
+
+// pub trait CountRequest<'a> where Self: SqlOperations<'a>
+// {
+//     async fn count(pool: Arc<SqlitePool>) -> Result<u32, DbError>
+//     {
+//         let q = ["SELECT COUNT(*) as count FROM ", Self::table_name()].concat();
+//         let selector = Selector::new(&q);
+//         let count: CR = Self::get_one(&selector, pool).await?;
+//         Ok(count.count)
+//     }
+// }
+// #[derive(Debug, Clone, FromRow)]
+// pub struct CR
+// {
+//     pub count: u32
+// }
     
     
 }
